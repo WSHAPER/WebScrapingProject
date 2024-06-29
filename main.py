@@ -3,6 +3,7 @@ import time
 import random
 import json
 import os
+from urllib.parse import urljoin
 
 
 def load_cookies(context):
@@ -27,39 +28,56 @@ def main():
             page = context.new_page()
 
             # Navigate to Immobilienscout24 and search for apartments in Stuttgart
-            page.goto(
-                "https://www.immobilienscout24.de/Suche/de/baden-wuerttemberg/stuttgart/wohnung-mieten?enteredFrom=one_step_search")
+            base_url = "https://www.immobilienscout24.de"
+            search_url = f"{base_url}/Suche/de/baden-wuerttemberg/stuttgart/wohnung-mieten?enteredFrom=one_step_search"
+            page.goto(search_url)
 
             # Wait for the search results to load
             page.wait_for_selector('.result-list__listing')
 
             apartments = []
             while len(apartments) < 150:
-                # Extract apartment information
-                listings = page.query_selector_all('.result-list__listing')
+                # Extract apartment information for individual listings
+                listings = page.query_selector_all('a[data-exp-id]')
                 for listing in listings:
                     if len(apartments) >= 150:
                         break
 
                     try:
-                        price = listing.query_selector('.result-list-entry__primary-criterion').inner_text()
-                        size = listing.query_selector('.result-list-entry__primary-criterion:nth-child(2)').inner_text()
-                        rooms = listing.query_selector(
-                            '.result-list-entry__primary-criterion:nth-child(3)').inner_text()
-                        address = listing.query_selector('.result-list-entry__address').inner_text()
+                        # Extract the title and URL of the listing
+                        title = listing.query_selector('h2').inner_text()
+                        url = listing.get_attribute('href')
 
-                        # You'll need to click on each listing to get more details
-                        listing.click()
-                        page.wait_for_selector('.is24qa-details-page')
+                        # Construct the full URL correctly
+                        full_url = urljoin(base_url, url)
 
-                        # Extract additional information (floors, balcony, parking)
-                        # Note: These selectors might need adjustment based on the actual page structure
-                        floors = page.query_selector('.is24qa-etage').inner_text() if page.query_selector(
-                            '.is24qa-etage') else "N/A"
-                        balcony = "Yes" if page.query_selector('.is24qa-balkon') else "No"
-                        parking = "Yes" if page.query_selector('.is24qa-stellplatz') else "No"
+                        # Navigate to the listing page
+                        listing_page = context.new_page()
+                        listing_page.goto(full_url)
+                        listing_page.wait_for_load_state('networkidle')
+
+                        # Extract detailed information
+                        price = listing_page.query_selector(
+                            '[data-cy="price"] span').inner_text() if listing_page.query_selector(
+                            '[data-cy="price"] span') else "N/A"
+                        size = listing_page.query_selector(
+                            '[data-cy="totalArea"] span').inner_text() if listing_page.query_selector(
+                            '[data-cy="totalArea"] span') else "N/A"
+                        rooms = listing_page.query_selector(
+                            '[data-cy="no-of-rooms"] span').inner_text() if listing_page.query_selector(
+                            '[data-cy="no-of-rooms"] span') else "N/A"
+                        address = listing_page.query_selector(
+                            '[data-cy="is24qa-objektanschrift"]').inner_text() if listing_page.query_selector(
+                            '[data-cy="is24qa-objektanschrift"]') else "N/A"
+                        floors = listing_page.query_selector(
+                            '[data-cy="floor"] span').inner_text() if listing_page.query_selector(
+                            '[data-cy="floor"] span') else "N/A"
+                        balcony = "Yes" if listing_page.query_selector('[data-cy="balcony-terrace"] span') else "No"
+                        parking = "Yes" if listing_page.query_selector('[data-cy="parking"] span') else "No"
 
                         apartments.append({
+                            "title": title,
+                            "url": full_url,
                             "price": price,
                             "size": size,
                             "rooms": rooms,
@@ -69,9 +87,7 @@ def main():
                             "address": address
                         })
 
-                        # Go back to the search results
-                        page.go_back()
-                        page.wait_for_selector('.result-list__listing')
+                        listing_page.close()
 
                     except Exception as e:
                         print(f"Error processing listing: {e}")
@@ -91,6 +107,10 @@ def main():
             # Print the collected data
             for apartment in apartments:
                 print(apartment)
+
+            # Save the data to a JSON file
+            with open('apartments.json', 'w', encoding='utf-8') as f:
+                json.dump(apartments, f, ensure_ascii=False, indent=4)
 
         except Exception as e:
             print(f"An error occurred: {e}")
