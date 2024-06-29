@@ -1,17 +1,34 @@
 from playwright.sync_api import sync_playwright
 import time
 import random
+import json
+import os
+
+
+def load_cookies(context):
+    if os.path.exists('cookies.json'):
+        with open('cookies.json', 'r') as f:
+            cookies = json.load(f)
+        context.add_cookies(cookies)
+        print("Cookies loaded successfully.")
+    else:
+        print("No saved cookies found.")
+
 
 def main():
     with sync_playwright() as p:
         try:
             browser = p.chromium.launch(headless=False)
-            page = browser.new_page()
+            context = browser.new_context()
+
+            # Load pre-accepted cookies
+            load_cookies(context)
+
+            page = context.new_page()
 
             # Navigate to Immobilienscout24 and search for apartments in Stuttgart
-            page.goto("https://www.immobilienscout24.de/")
-            page.fill('input[name="geocoding-location"]', "Stuttgart")
-            page.click('button[data-js-click="submitSearch"]')
+            page.goto(
+                "https://www.immobilienscout24.de/Suche/de/baden-wuerttemberg/stuttgart/wohnung-mieten?enteredFrom=one_step_search")
 
             # Wait for the search results to load
             page.wait_for_selector('.result-list__listing')
@@ -27,7 +44,8 @@ def main():
                     try:
                         price = listing.query_selector('.result-list-entry__primary-criterion').inner_text()
                         size = listing.query_selector('.result-list-entry__primary-criterion:nth-child(2)').inner_text()
-                        rooms = listing.query_selector('.result-list-entry__primary-criterion:nth-child(3)').inner_text()
+                        rooms = listing.query_selector(
+                            '.result-list-entry__primary-criterion:nth-child(3)').inner_text()
                         address = listing.query_selector('.result-list-entry__address').inner_text()
 
                         # You'll need to click on each listing to get more details
@@ -36,7 +54,8 @@ def main():
 
                         # Extract additional information (floors, balcony, parking)
                         # Note: These selectors might need adjustment based on the actual page structure
-                        floors = page.query_selector('.is24qa-etage').inner_text() if page.query_selector('.is24qa-etage') else "N/A"
+                        floors = page.query_selector('.is24qa-etage').inner_text() if page.query_selector(
+                            '.is24qa-etage') else "N/A"
                         balcony = "Yes" if page.query_selector('.is24qa-balkon') else "No"
                         parking = "Yes" if page.query_selector('.is24qa-stellplatz') else "No"
 
@@ -78,6 +97,7 @@ def main():
         finally:
             if 'browser' in locals():
                 browser.close()
+
 
 if __name__ == "__main__":
     main()
