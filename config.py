@@ -1,13 +1,13 @@
 # config.py
 
 FIELDS_TO_FETCH = {
-    "title": ".is24qa-expose-title",
+    "title": "#expose-title",
     "price": ".is24qa-kaltmiete",
-    "size": ".is24qa-flaeche-ca",
+    "size": ".is24qa-flaeche-main",
     "rooms": ".is24qa-zimmer",
     "address": ".address-block",
     "nebenkosten": ".is24qa-nebenkosten",
-    "heizkosten": ".is24qa-heizkosten",
+    "heating_expenses_excluded": ".is24qa-heizkosten",
     "gesamtmiete": ".is24qa-gesamtmiete",
     "kaution": ".is24qa-kaution-o-genossenschaftsanteile"
 }

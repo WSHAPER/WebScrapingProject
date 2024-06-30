@@ -68,23 +68,36 @@ def scrape_listing(page, url):
             if element:
                 if field == "address":
                     data[field] = element.inner_text().replace("\n", ", ").strip()
-                elif field in ["price", "nebenkosten", "heizkosten", "gesamtmiete", "kaution"]:
+                elif field == "heating_expenses_excluded":
+                    heizkosten_text = element.inner_text().strip().lower()
+                    data[field] = "nicht in nebenkosten enthalten" in heizkosten_text
+                    if data[field]:
+                        data['heizkosten'] = None
+                    else:
+                        # Extract numeric value if present
+                        numeric_value = ''.join(filter(lambda x: x.isdigit() or x in [',', '.'], heizkosten_text))
+                        data['heizkosten'] = numeric_value if numeric_value else None
+                elif field in ["price", "nebenkosten", "gesamtmiete", "kaution"]:
                     text = element.inner_text().strip()
-                    data[field] = text.split()[0] if text else "N/A"
+                    # Extract numeric value, handling cases like "+ 250 €"
+                    numeric_value = ''.join(filter(lambda x: x.isdigit() or x in [',', '.'], text))
+                    data[field] = numeric_value if numeric_value else None
                 else:
                     data[field] = element.inner_text().strip()
             else:
-                data[field] = "N/A"
+                data[field] = None
         except Exception as e:
             print(f"Error extracting {field}: {e}")
             data[field] = "Error"
 
-    if data['price'] != "N/A" and data['price'] != "Error":
-        try:
-            data['price'] = float(data['price'].replace('€', '').replace('.', '').replace(',', '.').strip())
-        except ValueError:
-            print(f"Error converting price: {data['price']}")
-            data['price'] = "Error"
+    # Convert price and other numeric fields to float
+    for field in ["price", "nebenkosten", "gesamtmiete", "kaution", "heizkosten"]:
+        if field in data and data[field] not in [None, "Error"]:
+            try:
+                data[field] = float(data[field].replace('.', '').replace(',', '.'))
+            except ValueError:
+                print(f"Error converting {field}: {data[field]}")
+                data[field] = None
 
     return data
 
