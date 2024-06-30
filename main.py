@@ -79,9 +79,11 @@ def scrape_listing(page, url):
                         data['heizkosten'] = numeric_value if numeric_value else None
                 elif field in ["price", "nebenkosten", "gesamtmiete", "kaution"]:
                     text = element.inner_text().strip()
-                    # Extract numeric value, handling cases like "+ 250 €"
+                    # Remove any non-numeric characters except , and .
                     numeric_value = ''.join(filter(lambda x: x.isdigit() or x in [',', '.'], text))
                     data[field] = numeric_value if numeric_value else None
+                    if field == "gesamtmiete":
+                        data["gesamtmiete_estimated"] = "~" in text
                 else:
                     data[field] = element.inner_text().strip()
             else:
