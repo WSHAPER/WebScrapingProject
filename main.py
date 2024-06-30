@@ -72,18 +72,18 @@ def scrape_listing(page, url):
                     heizkosten_text = element.inner_text().strip().lower()
                     data[field] = "nicht in nebenkosten enthalten" in heizkosten_text
                     if data[field]:
-                        data['heizkosten'] = None
+                        data['heating_costs'] = None
                     else:
                         # Extract numeric value if present
                         numeric_value = ''.join(filter(lambda x: x.isdigit() or x in [',', '.'], heizkosten_text))
-                        data['heizkosten'] = numeric_value if numeric_value else None
-                elif field in ["price", "nebenkosten", "gesamtmiete", "kaution"]:
+                        data['heating_costs'] = numeric_value if numeric_value else None
+                elif field in ["price", "additional_costs", "total_rent", "deposit"]:
                     text = element.inner_text().strip()
                     # Remove any non-numeric characters except , and .
                     numeric_value = ''.join(filter(lambda x: x.isdigit() or x in [',', '.'], text))
                     data[field] = numeric_value if numeric_value else None
-                    if field == "gesamtmiete":
-                        data["gesamtmiete_estimated"] = "~" in text
+                    if field == "total_rent":
+                        data["total_rent_estimated"] = "~" in text
                 else:
                     data[field] = element.inner_text().strip()
             else:
@@ -93,7 +93,7 @@ def scrape_listing(page, url):
             data[field] = "Error"
 
     # Convert price and other numeric fields to float
-    for field in ["price", "nebenkosten", "gesamtmiete", "kaution", "heizkosten"]:
+    for field in ["price", "additional_costs", "total_rent", "deposit", "heating_costs"]:
         if field in data and data[field] not in [None, "Error"]:
             try:
                 data[field] = float(data[field].replace('.', '').replace(',', '.'))

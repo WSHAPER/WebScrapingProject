@@ -7,10 +7,10 @@ FIELDS_TO_FETCH = {
     "rooms": ".is24qa-zimmer",
     "stories": ".is24qa-etage",
     "address": ".address-block",
-    "nebenkosten": ".is24qa-nebenkosten",
+    "additional_costs": ".is24qa-nebenkosten",
     "heating_expenses_excluded": ".is24qa-heizkosten",
-    "gesamtmiete": ".is24qa-warmmiete-main, .is24qa-geschaetzte-warmmiete-main",
-    "kaution": ".is24qa-kaution-o-genossenschaftsanteile"
+    "total_rent": ".is24qa-warmmiete-main, .is24qa-geschaetzte-warmmiete-main",
+    "deposit": ".is24qa-kaution-o-genossenschaftsanteile"
 }
 
 # URL to scrape
