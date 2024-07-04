@@ -27,9 +27,16 @@ def safe_extract(page, selector):
 
 
 def is_captcha_present(page):
+    captcha_keywords = ["roboter", "human", "captcha", "verify"]
+    page_text = page.inner_text('body').lower()
+
+    if any(keyword in page_text for keyword in captcha_keywords):
+        return True
+
     captcha_selectors = [
-        "#captcha-box",  # Adjust this selector based on the actual CAPTCHA element
-        "text=Please verify you are a human",  # Adjust this text based on what's shown on the CAPTCHA page
+        "#captcha-box",
+        "[id*='captcha']",  # Match any id containing 'captcha'
+        "[class*='captcha']",  # Match any class containing 'captcha'
     ]
     return any(page.query_selector(selector) for selector in captcha_selectors)
 
@@ -50,6 +57,16 @@ def extract_links(page):
             full_url = f"{BASE_URL}{href}"
             extracted_links.append(full_url)
     return extracted_links
+
+def debug_page_content(page):
+    print("Current URL:", page.url)
+    print("Page title:", page.title())
+    print("Page content:")
+    print(page.content())
+    print("All links on the page:")
+    all_links = page.query_selector_all('a')
+    for link in all_links:
+        print(link.get_attribute('href'))
 
 def scrape_listing(page, url):
     page.goto(url)
@@ -132,8 +149,25 @@ def main():
         if not wait_for_page_load(page):
             print("Search results page load timeout. Proceeding anyway.")
 
-        # Extract links
-        links = extract_links(page)
+        max_retries = 3
+        for attempt in range(max_retries):
+            if is_captcha_present(page):
+                print("CAPTCHA detected on search page. Please solve the CAPTCHA manually.")
+                input("Press Enter when you've solved the CAPTCHA...")
+                page.reload()
+                wait_for_page_load(page)
+
+            # Extract links
+            links = extract_links(page)
+            if links:
+                break
+            elif attempt < max_retries - 1:
+                print(f"No links found. Retrying... (Attempt {attempt + 1}/{max_retries})")
+                time.sleep(5)  # Wait a bit before retrying
+            else:
+                print("No links found after all attempts. Debugging page content:")
+                debug_page_content(page)
+
         print(f"Extracted {len(links)} links:")
         for link in links:
             print(link)
