@@ -5,19 +5,26 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 import json
 import os
 from config import FIELDS_TO_FETCH, SEARCH_URL, BASE_URL, LIMIT_INT
+import logging
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 BROWSER_FLAG_FILE = 'browser_running.flag'
 CDP_PORT = 9222
 
 def connect_to_browser():
+    logging.debug("Connecting to browser")
     if not os.path.exists(BROWSER_FLAG_FILE):
         raise Exception("Browser flag file not found. Please run browser_manager.py first.")
     
+    with open(BROWSER_FLAG_FILE, 'r') as f:
+        port = f.read().strip().split()[-1]
+    
     playwright = sync_playwright().start()
-    browser = playwright.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
+    browser = playwright.chromium.connect_over_cdp(f"http://localhost:{port}")
     context = browser.new_context()
-    page = context.new_page()
-    return playwright, browser, context, page
+    logging.debug("Successfully connected to browser")
+    return playwright, browser, context
 
 def safe_extract(page, selector):
     element = page.query_selector(selector)
@@ -178,7 +185,7 @@ def extract_links_stage(page):
             input("Press Enter when you've solved the CAPTCHA...")
             page.reload()
             print("Page reloaded after CAPTCHA. Waiting for 5 seconds...")
-            page.wait_for_timeout(5000)  # Wait for 10 seconds after CAPTCHA
+            page.wait_for_timeout(5000)  # Wait for 5 seconds after CAPTCHA
             accept_cookies(page)  # Check for cookies again after CAPTCHA
 
         print(f"Attempt {attempt + 1}: Waiting for search results...")
@@ -208,7 +215,7 @@ def scrape_data_stage(context, links):
     all_data = []
     for link in links:
         try:
-            # Open a new tab for each link
+            # Reuse the same context, just create a new page
             page = context.new_page()
             page.goto(link, timeout=30000)  # 30 seconds timeout
             
@@ -229,26 +236,30 @@ def scrape_data_stage(context, links):
             page.screenshot(path=f'error_screenshot_{link.split("/")[-1]}.png')
             print(f"Screenshot saved as 'error_screenshot_{link.split('/')[-1]}.png'")
         finally:
-            # Close the tab after scraping
+            # Close the page, but keep the context open
             page.close()
 
     return all_data
 
+
 def main():
+    logging.debug("Starting main function")
     playwright = None
     browser = None
     context = None
+    search_page = None
 
     try:
-        playwright, browser, context, page = connect_to_browser()
+        playwright, browser, context = connect_to_browser()
 
         # Stage 1: Extract links
-        page.goto(SEARCH_URL)
-        if not wait_for_page_load(page):
+        search_page = context.new_page()
+        search_page.goto(SEARCH_URL)
+        if not wait_for_page_load(search_page):
             print("Search results page load timeout. Proceeding anyway.")
 
-        links = extract_links_stage(page)
-        page.close()  # Close the search results page
+        links = extract_links_stage(search_page)
+        # Note: We're not closing the search_page here anymore
 
         print(f"\nThe following {len(links)} unique links were found:")
         for link in links:
@@ -274,12 +285,28 @@ def main():
         print(f"An unexpected error occurred: {e}")
     finally:
         print("Script execution finished.")
+        if search_page:
+            search_page.close()
         if context:
+            logging.debug("Closing context")
             context.close()
-        if browser:
-            browser.disconnect()
-        if playwright:
-            playwright.stop()
+        
+        print("Browser remains open. You can continue using it or close it manually when you're done.")
+        
+        # Keep the script running until user decides to close
+        while True:
+            user_input = input("Enter 'q' to quit and close the browser connection, or press Enter to keep it open: ")
+            if user_input.lower() == 'q':
+                if browser:
+                    logging.debug("Disconnecting browser")
+                    browser.disconnect()
+                if playwright:
+                    logging.debug("Stopping playwright")
+                    playwright.stop()
+                print("Browser connection closed.")
+                break
+            else:
+                print("Browser connection remains open. You can run the script again to continue scraping.")
 
 if __name__ == "__main__":
     main()
