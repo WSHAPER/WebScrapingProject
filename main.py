@@ -177,8 +177,8 @@ def extract_links_stage(page):
             print("CAPTCHA detected on search page. Please solve the CAPTCHA manually.")
             input("Press Enter when you've solved the CAPTCHA...")
             page.reload()
-            print("Page reloaded after CAPTCHA. Waiting for 10 seconds...")
-            page.wait_for_timeout(10000)  # Wait for 10 seconds after CAPTCHA
+            print("Page reloaded after CAPTCHA. Waiting for 5 seconds...")
+            page.wait_for_timeout(5000)  # Wait for 10 seconds after CAPTCHA
             accept_cookies(page)  # Check for cookies again after CAPTCHA
 
         print(f"Attempt {attempt + 1}: Waiting for search results...")
@@ -240,12 +240,9 @@ def main():
     context = None
 
     try:
-        playwright = sync_playwright().start()
-        browser = playwright.chromium.launch(headless=False)
-        context = browser.new_context()
+        playwright, browser, context, page = connect_to_browser()
 
         # Stage 1: Extract links
-        page = context.new_page()
         page.goto(SEARCH_URL)
         if not wait_for_page_load(page):
             print("Search results page load timeout. Proceeding anyway.")
@@ -280,7 +277,7 @@ def main():
         if context:
             context.close()
         if browser:
-            browser.close()
+            browser.disconnect()
         if playwright:
             playwright.stop()
 
