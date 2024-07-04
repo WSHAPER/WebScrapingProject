@@ -4,22 +4,24 @@ import time
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import json
 import os
-from config import FIELDS_TO_FETCH, TARGET_URL
+from config import FIELDS_TO_FETCH, SEARCH_URL, BASE_URL, LIMIT_INT
 
+BROWSER_FLAG_FILE = 'browser_running.flag'
+CDP_PORT = 9222
 
-def load_cookies(context):
-    if os.path.exists('cookies.json'):
-        with open('cookies.json', 'r') as f:
-            cookies = json.load(f)
-        context.add_cookies(cookies)
-        print("Cookies loaded successfully.")
-    else:
-        print("No saved cookies found.")
-
+def connect_to_browser():
+    if not os.path.exists(BROWSER_FLAG_FILE):
+        raise Exception("Browser flag file not found. Please run browser_manager.py first.")
+    
+    playwright = sync_playwright().start()
+    browser = playwright.chromium.connect_over_cdp(f"http://localhost:{CDP_PORT}")
+    context = browser.new_context()
+    page = context.new_page()
+    return playwright, browser, context, page
 
 def safe_extract(page, selector):
     element = page.query_selector(selector)
-    if (element):
+    if element:
         return element.inner_text().strip()
     return "N/A"
 
@@ -39,11 +41,20 @@ def wait_for_page_load(page, timeout=60000):
     except PlaywrightTimeoutError:
         return False
 
+def extract_links(page):
+    links = page.query_selector_all('a[data-exp-id]')
+    extracted_links = []
+    for link in links[:LIMIT_INT]:
+        href = link.get_attribute('href')
+        if href and href.startswith('/expose/'):
+            full_url = f"{BASE_URL}{href}"
+            extracted_links.append(full_url)
+    return extracted_links
 
 def scrape_listing(page, url):
     page.goto(url)
     if not wait_for_page_load(page):
-        print("Page load timeout. Proceeding anyway.")
+        print(f"Page load timeout for {url}. Proceeding anyway.")
 
     if is_captcha_present(page):
         print("CAPTCHA detected. Please solve the CAPTCHA manually.")
@@ -92,7 +103,7 @@ def scrape_listing(page, url):
             else:
                 data[field] = None
         except Exception as e:
-            print(f"Error extracting {field}: {e}")
+            print(f"Error extracting {field} from {url}: {e}")
             data[field] = "Error"
 
     # Convert price and other numeric fields to float
@@ -108,30 +119,58 @@ def scrape_listing(page, url):
 
 
 def main():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
-        context = browser.new_context()
-        load_cookies(context)
-        page = context.new_page()
+    playwright = None
+    browser = None
+    context = None
+    page = None
 
-        while True:
+    try:
+        playwright, browser, context, page = connect_to_browser()
+
+        # Navigate to the search results page
+        page.goto(SEARCH_URL)
+        if not wait_for_page_load(page):
+            print("Search results page load timeout. Proceeding anyway.")
+
+        # Extract links
+        links = extract_links(page)
+        print(f"Extracted {len(links)} links:")
+        for link in links:
+            print(link)
+
+        # Scrape each listing
+        all_data = []
+        for link in links:
             try:
-                data = scrape_listing(page, TARGET_URL)
+                data = scrape_listing(page, link)
                 if data:
+                    all_data.append(data)
+                    print(f"Scraped data for {link}:")
                     print(json.dumps(data, indent=2, ensure_ascii=False))
                 else:
-                    print("Failed to scrape data.")
+                    print(f"Failed to scrape data for {link}")
             except Exception as e:
-                print(f"An unexpected error occurred: {e}")
-                page.screenshot(path='error_screenshot.png')
-                print("Screenshot saved as 'error_screenshot.png'")
+                print(f"An unexpected error occurred while scraping {link}: {e}")
+                page.screenshot(path=f'error_screenshot_{link.split("/")[-1]}.png')
+                print(f"Screenshot saved as 'error_screenshot_{link.split('/')[-1]}.png'")
 
-            user_input = input("Press Enter to scrape again, or type 'q' to quit: ")
-            if user_input.lower() == 'q':
-                break
+        # Save all scraped data to a JSON file
+        with open('scraped_data.json', 'w', encoding='utf-8') as f:
+            json.dump(all_data, f, ensure_ascii=False, indent=2)
+        print("All scraped data saved to 'scraped_data.json'")
 
-        browser.close()
-
+    except KeyboardInterrupt:
+        print("Script execution cancelled.")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+    finally:
+        print("Script execution finished. Browser remains open in browser_manager.py")
+        if context:
+            context.close()
+        if browser:
+            browser.close()
+        if playwright:
+            playwright.stop()
 
 if __name__ == "__main__":
     main()

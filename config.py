@@ -13,5 +13,11 @@ FIELDS_TO_FETCH = {
     "deposit": ".is24qa-kaution-o-genossenschaftsanteile"
 }
 
-# URL to scrape
-TARGET_URL = "https://www.immobilienscout24.de/expose/149096323#/"
+# URL for search results
+SEARCH_URL = "https://www.immobilienscout24.de/Suche/de/baden-wuerttemberg/stuttgart/wohnung-mieten"
+
+# Base URL for individual listings
+BASE_URL = "https://www.immobilienscout24.de"
+
+# Limit for the number of listings to scrape
+LIMIT_INT = 10
