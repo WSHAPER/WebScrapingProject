@@ -67,7 +67,10 @@ def scrape_listing(page, url):
             element = page.query_selector(selector)
             if element:
                 if field == "address":
-                    data[field] = element.inner_text().replace("\n", ", ").strip()
+                    address = element.inner_text().replace("\n", ", ").strip()
+                    # Remove any duplicate commas and extra spaces
+                    address = ", ".join(part.strip() for part in address.split(",") if part.strip())
+                    data[field] = address
                 elif field == "heating_expenses_excluded":
                     heizkosten_text = element.inner_text().strip().lower()
                     data[field] = "nicht in nebenkosten enthalten" in heizkosten_text
