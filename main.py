@@ -61,7 +61,7 @@ def scrape_listing(page, url):
         print("Screenshot saved as 'error_screenshot.png'")
         return None
 
-    data = {}
+    data = {"url": url}  # Include the URL in the data dictionary
     for field, selector in FIELDS_TO_FETCH.items():
         try:
             element = page.query_selector(selector)
