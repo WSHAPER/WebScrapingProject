@@ -25,21 +25,41 @@ def safe_extract(page, selector):
         return element.inner_text().strip()
     return "N/A"
 
+def is_cookie_consent_present(page):
+    consent_selectors = [
+        "#uc-fading-wrapper",
+        "[data-testid='uc-header-wrapper']",
+        "text=Wir verwenden Cookies",
+        "button:has-text('Alle akzeptieren')"
+    ]
+    return any(page.query_selector(selector) for selector in consent_selectors)
+
+def accept_cookies(page):
+    if is_cookie_consent_present(page):
+        try:
+            accept_button = page.query_selector("button:has-text('Alle akzeptieren')")
+            if accept_button:
+                accept_button.click()
+                print("Cookies accepted automatically.")
+                page.wait_for_load_state('networkidle')
+            else:
+                print("Accept button not found. Cookie consent may require manual interaction.")
+        except Exception as e:
+            print(f"Error accepting cookies: {e}")
 
 def is_captcha_present(page):
     captcha_keywords = ["roboter", "human", "captcha", "verify"]
     page_text = page.inner_text('body').lower()
-
+    
     if any(keyword in page_text for keyword in captcha_keywords):
         return True
-
+    
     captcha_selectors = [
         "#captcha-box",
-        "[id*='captcha']",  # Match any id containing 'captcha'
-        "[class*='captcha']",  # Match any class containing 'captcha'
+        "[id*='captcha']",
+        "[class*='captcha']",
     ]
     return any(page.query_selector(selector) for selector in captcha_selectors)
-
 
 def wait_for_page_load(page, timeout=60000):
     try:
@@ -49,24 +69,38 @@ def wait_for_page_load(page, timeout=60000):
         return False
 
 def extract_links(page):
-    links = page.query_selector_all('a[data-exp-id]')
-    extracted_links = []
-    for link in links[:LIMIT_INT]:
-        href = link.get_attribute('href')
-        if href and href.startswith('/expose/'):
-            full_url = f"{BASE_URL}{href}"
-            extracted_links.append(full_url)
-    return extracted_links
+    links = page.query_selector_all('article[data-item="result"]')
+    extracted_links = set()  # Use a set to ensure uniqueness
+    for article in links:
+        link_element = article.query_selector('a[data-exp-id]')
+        if link_element:
+            href = link_element.get_attribute('href')
+            if href:
+                if href.startswith('/expose/'):
+                    full_url = f"{BASE_URL}{href}"
+                    extracted_links.add(full_url)
+                elif href.startswith('https://www.immobilienscout24.de/expose/'):
+                    extracted_links.add(href)
+        
+        if len(extracted_links) >= LIMIT_INT:
+            break
+    
+    return list(extracted_links)[:LIMIT_INT]
 
 def debug_page_content(page):
     print("Current URL:", page.url)
     print("Page title:", page.title())
-    print("Page content:")
+    print("All article elements:")
+    articles = page.query_selector_all('article[data-item="result"]')
+    for i, article in enumerate(articles):
+        print(f"Article {i + 1}:")
+        link_element = article.query_selector('a[data-exp-id]')
+        if link_element:
+            print(f"  Link: {link_element.get_attribute('href')}")
+        else:
+            print("  No link found in this article")
+    print("\nFull page content:")
     print(page.content())
-    print("All links on the page:")
-    all_links = page.query_selector_all('a')
-    for link in all_links:
-        print(link.get_attribute('href'))
 
 def scrape_listing(page, url):
     page.goto(url)
@@ -134,59 +168,103 @@ def scrape_listing(page, url):
 
     return data
 
+def extract_links_stage(page):
+    accept_cookies(page)
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        if is_captcha_present(page):
+            print("CAPTCHA detected on search page. Please solve the CAPTCHA manually.")
+            input("Press Enter when you've solved the CAPTCHA...")
+            page.reload()
+            print("Page reloaded after CAPTCHA. Waiting for 10 seconds...")
+            page.wait_for_timeout(10000)  # Wait for 10 seconds after CAPTCHA
+            accept_cookies(page)  # Check for cookies again after CAPTCHA
+
+        print(f"Attempt {attempt + 1}: Waiting for search results...")
+        try:
+            page.wait_for_selector('article[data-item="result"]', timeout=60000)
+            print("Search result articles found.")
+        except PlaywrightTimeoutError:
+            print("Timeout while waiting for search results. Proceeding anyway.")
+
+        print(f"Current URL: {page.url}")
+        print(f"Page title: {page.title()}")
+
+        links = extract_links(page)
+        if links:
+            return links
+        elif attempt < max_retries - 1:
+            print(f"No links found. Retrying... (Attempt {attempt + 1}/{max_retries})")
+            page.reload()
+            page.wait_for_timeout(5000)  # Wait for 5 seconds before retrying
+        else:
+            print("No links found after all attempts. Debugging page content:")
+            debug_page_content(page)
+    
+    return []
+
+def scrape_data_stage(context, links):
+    all_data = []
+    for link in links:
+        try:
+            # Open a new tab for each link
+            page = context.new_page()
+            page.goto(link, timeout=30000)  # 30 seconds timeout
+            
+            if is_captcha_present(page):
+                print(f"CAPTCHA detected on {link}. Please solve it manually.")
+                input("Press Enter when you've solved the CAPTCHA...")
+                page.reload()
+            
+            data = scrape_listing(page, link)
+            if data:
+                all_data.append(data)
+                print(f"Scraped data for {link}:")
+                print(json.dumps(data, indent=2, ensure_ascii=False))
+            else:
+                print(f"Failed to scrape data for {link}")
+        except Exception as e:
+            print(f"An unexpected error occurred while scraping {link}: {e}")
+            page.screenshot(path=f'error_screenshot_{link.split("/")[-1]}.png')
+            print(f"Screenshot saved as 'error_screenshot_{link.split('/')[-1]}.png'")
+        finally:
+            # Close the tab after scraping
+            page.close()
+
+    return all_data
 
 def main():
     playwright = None
     browser = None
     context = None
-    page = None
 
     try:
-        playwright, browser, context, page = connect_to_browser()
+        playwright = sync_playwright().start()
+        browser = playwright.chromium.launch(headless=False)
+        context = browser.new_context()
 
-        # Navigate to the search results page
+        # Stage 1: Extract links
+        page = context.new_page()
         page.goto(SEARCH_URL)
         if not wait_for_page_load(page):
             print("Search results page load timeout. Proceeding anyway.")
 
-        max_retries = 3
-        for attempt in range(max_retries):
-            if is_captcha_present(page):
-                print("CAPTCHA detected on search page. Please solve the CAPTCHA manually.")
-                input("Press Enter when you've solved the CAPTCHA...")
-                page.reload()
-                wait_for_page_load(page)
+        links = extract_links_stage(page)
+        page.close()  # Close the search results page
 
-            # Extract links
-            links = extract_links(page)
-            if links:
-                break
-            elif attempt < max_retries - 1:
-                print(f"No links found. Retrying... (Attempt {attempt + 1}/{max_retries})")
-                time.sleep(5)  # Wait a bit before retrying
-            else:
-                print("No links found after all attempts. Debugging page content:")
-                debug_page_content(page)
-
-        print(f"Extracted {len(links)} links:")
+        print(f"\nThe following {len(links)} unique links were found:")
         for link in links:
             print(link)
 
-        # Scrape each listing
-        all_data = []
-        for link in links:
-            try:
-                data = scrape_listing(page, link)
-                if data:
-                    all_data.append(data)
-                    print(f"Scraped data for {link}:")
-                    print(json.dumps(data, indent=2, ensure_ascii=False))
-                else:
-                    print(f"Failed to scrape data for {link}")
-            except Exception as e:
-                print(f"An unexpected error occurred while scraping {link}: {e}")
-                page.screenshot(path=f'error_screenshot_{link.split("/")[-1]}.png')
-                print(f"Screenshot saved as 'error_screenshot_{link.split('/')[-1]}.png'")
+        # Ask user if they want to continue with scraping
+        user_input = input("\nContinue with web scraping? (y/n): ").lower().strip()
+        if user_input != 'y':
+            print("Scraping cancelled by user.")
+            return
+
+        # Stage 2: Scrape data
+        all_data = scrape_data_stage(context, links)
 
         # Save all scraped data to a JSON file
         with open('scraped_data.json', 'w', encoding='utf-8') as f:
@@ -198,7 +276,7 @@ def main():
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
     finally:
-        print("Script execution finished. Browser remains open in browser_manager.py")
+        print("Script execution finished.")
         if context:
             context.close()
         if browser:

@@ -20,4 +20,4 @@ SEARCH_URL = "https://www.immobilienscout24.de/Suche/de/baden-wuerttemberg/stutt
 BASE_URL = "https://www.immobilienscout24.de"
 
 # Limit for the number of listings to scrape
-LIMIT_INT = 10
+LIMIT_INT = 1
