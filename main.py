@@ -7,6 +7,7 @@ import os
 from config import FIELDS_TO_FETCH, BASE_URL, LIMIT_INT, SEARCH_CONFIGS
 import logging
 import re
+from urllib.parse import urlparse, parse_qs
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -97,7 +98,7 @@ def is_valid_address(address):
     return ',' in address and any(char.isdigit() for char in address.split(',')[0])
 
 
-def extract_links(page):
+def extract_links(page, has_parking, has_balcony):
     links = page.query_selector_all('article[data-item="result"]')
     extracted_links = set()  # Use a set to ensure uniqueness
     for article in links:
@@ -111,9 +112,11 @@ def extract_links(page):
             if href and is_valid_address(address):
                 if href.startswith('/expose/'):
                     full_url = f"{BASE_URL}{href}"
-                    extracted_links.add(full_url)
+                    # Associate parking and balcony info with the link here
+                    extracted_links.add((full_url, has_parking, has_balcony))
                 elif href.startswith('https://www.immobilienscout24.de/expose/'):
-                    extracted_links.add(href)
+                    # Associate parking and balcony info with the link here
+                    extracted_links.add((href, has_parking, has_balcony))
 
         if len(extracted_links) >= LIMIT_INT:
             break
@@ -223,9 +226,9 @@ def scrape_listing(page, url):
 
     return data
 
-def scrape_data_stage(context, links):
+def scrape_data_stage(context, links_with_info):
     all_data = []
-    for link in links:
+    for link, has_parking, has_balcony in links_with_info:
         try:
             page = context.new_page()
             page.goto(link, timeout=30000)
@@ -237,6 +240,9 @@ def scrape_data_stage(context, links):
 
             data = scrape_listing(page, link)
             if data:
+                # Add parking and balcony info to the scraped data
+                data['parking'] = has_parking
+                data['balcony'] = has_balcony
                 all_data.append(data)
                 print(f"Scraped data for {link}:")
                 print(json.dumps(data, indent=2, ensure_ascii=False))
@@ -256,6 +262,13 @@ def extract_links_for_config(page, base_url, start_page=1):
     all_links = []
     current_page = start_page
     wait_time = 5000  # Wait time in milliseconds (5 seconds)
+
+    # Parse the base_url to get the search parameters
+    parsed_url = urlparse(base_url)
+    query_params = parse_qs(parsed_url.query)
+    equipment = query_params.get('equipment', [])
+    has_parking = 'parking' in equipment
+    has_balcony = 'balcony' in equipment
 
     while len(all_links) < LIMIT_INT:
         page_url = f"{base_url}&pagenumber={current_page}" if '?' in base_url else f"{base_url}?pagenumber={current_page}"
@@ -278,7 +291,7 @@ def extract_links_for_config(page, base_url, start_page=1):
             page.wait_for_selector('article[data-item="result"]', timeout=60000)
             print("Search result articles found.")
 
-            links = extract_links(page)
+            links = extract_links(page, has_parking, has_balcony)  # Pass the parameters here
             all_links.extend(links)
             print(f"Found {len(links)} links on page {current_page}. Total links: {len(all_links)}")
 
@@ -313,8 +326,8 @@ def main():
         for config in SEARCH_CONFIGS:
             print(f"\nExtracting links for configuration: {config}")
             try:
-                links = extract_links_for_config(search_page, config)
-                new_links = set(links) - all_unique_links
+                links_with_info = extract_links_for_config(search_page, config)
+                new_links = set(links_with_info) - all_unique_links
                 all_unique_links.update(new_links)
                 print(f"Found {len(new_links)} new unique links for this configuration.")
                 print(f"Total unique links so far: {len(all_unique_links)}")
@@ -324,8 +337,8 @@ def main():
 
         links_list = list(all_unique_links)
         print(f"\nTotal {len(links_list)} unique links found across all configurations:")
-        for link in links_list:
-            print(link)
+        for link, has_parking, has_balcony in links_list:
+            print(f"{link} (Parking: {has_parking}, Balcony: {has_balcony})")
 
         # Ask user if they want to continue with scraping
         user_input = input("\nContinue with web scraping? (y/n): ").lower().strip()
@@ -334,7 +347,7 @@ def main():
             return
 
         # Stage 2: Scrape data
-        all_data = scrape_data_stage(context, links)
+        all_data = scrape_data_stage(context, links_list)
 
         # Save all scraped data to a JSON file
         with open('scraped_data.json', 'w', encoding='utf-8') as f:

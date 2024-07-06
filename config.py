@@ -17,6 +17,7 @@ FIELDS_TO_FETCH = {
 SEARCH_CONFIGS = [
     "https://www.immobilienscout24.de/Suche/de/baden-wuerttemberg/stuttgart/wohnung-mieten?equipment=parking,balcony",
     "https://www.immobilienscout24.de/Suche/de/baden-wuerttemberg/stuttgart/wohnung-mieten?equipment=balcony",
+    "https://www.immobilienscout24.de/Suche/de/baden-wuerttemberg/stuttgart/wohnung-mieten?equipment=parking",
     "https://www.immobilienscout24.de/Suche/de/baden-wuerttemberg/stuttgart/wohnung-mieten"
 ]
 
