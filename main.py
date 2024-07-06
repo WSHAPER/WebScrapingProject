@@ -199,6 +199,11 @@ def scrape_listing(page, url):
                 print(f"Error converting {field}: {data[field]}")
                 data[field] = None
 
+    # Check if the listing should be skipped based on the "stories" field
+    if data.get("stories") is None or "von" not in data.get("stories", ""):
+        print(f"Skipping listing {url} due to invalid 'stories' field: {data.get('stories')}")
+        return None
+
     return data
 
 def extract_links_stage(page):
@@ -254,9 +259,8 @@ def scrape_data_stage(context, links):
     all_data = []
     for link in links:
         try:
-            # Reuse the same context, just create a new page
             page = context.new_page()
-            page.goto(link, timeout=30000)  # 30 seconds timeout
+            page.goto(link, timeout=30000)
             
             if is_captcha_present(page):
                 print(f"CAPTCHA detected on {link}. Please solve it manually.")
@@ -269,13 +273,12 @@ def scrape_data_stage(context, links):
                 print(f"Scraped data for {link}:")
                 print(json.dumps(data, indent=2, ensure_ascii=False))
             else:
-                print(f"Failed to scrape data for {link}")
+                print(f"Skipped or failed to scrape data for {link}")
         except Exception as e:
             print(f"An unexpected error occurred while scraping {link}: {e}")
             page.screenshot(path=f'error_screenshot_{link.split("/")[-1]}.png')
             print(f"Screenshot saved as 'error_screenshot_{link.split('/')[-1]}.png'")
         finally:
-            # Close the page, but keep the context open
             page.close()
 
     return all_data
