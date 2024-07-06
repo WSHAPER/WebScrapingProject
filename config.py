@@ -14,10 +14,10 @@ FIELDS_TO_FETCH = {
 }
 
 # URL for search results
-SEARCH_URL = "https://www.immobilienscout24.de/Suche/de/baden-wuerttemberg/stuttgart/wohnung-mieten"
+SEARCH_URL = "https://www.immobilienscout24.de/Suche/de/baden-wuerttemberg/stuttgart/wohnung-mieten?pagenumber=2"
 
 # Base URL for individual listings
 BASE_URL = "https://www.immobilienscout24.de"
 
 # Limit for the number of listings to scrape
-LIMIT_INT = 5
+LIMIT_INT = 200

@@ -6,6 +6,7 @@ import json
 import os
 from config import FIELDS_TO_FETCH, SEARCH_URL, BASE_URL, LIMIT_INT
 import logging
+import re
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -54,19 +55,34 @@ def accept_cookies(page):
         except Exception as e:
             print(f"Error accepting cookies: {e}")
 
+
 def is_captcha_present(page):
-    captcha_keywords = ["roboter", "human", "captcha", "verify"]
-    page_text = page.inner_text('body').lower()
-    
-    if any(keyword in page_text for keyword in captcha_keywords):
-        return True
-    
-    captcha_selectors = [
-        "#captcha-box",
-        "[id*='captcha']",
-        "[class*='captcha']",
+    # Check for visible CAPTCHA elements
+    visible_captcha_selectors = [
+        ".g-recaptcha",  # Common class for reCAPTCHA
+        "iframe[src*='google.com/recaptcha']",  # reCAPTCHA iframe
+        "#captcha-box",  # Custom CAPTCHA element
+        "[id*='captcha']:not([style*='display: none'])",  # Any visible element with 'captcha' in its ID
     ]
-    return any(page.query_selector(selector) for selector in captcha_selectors)
+
+    for selector in visible_captcha_selectors:
+        element = page.query_selector(selector)
+        if element and element.is_visible():
+            return True
+
+    # Check for CAPTCHA-related text in the page content
+    captcha_keywords = ["captcha", "verify you're not a robot", "human verification"]
+    page_text = page.inner_text('body').lower()
+
+    if any(keyword in page_text for keyword in captcha_keywords):
+        # Additional check: Is this text actually visible?
+        for keyword in captcha_keywords:
+            elements = page.query_selector_all(f"text=/{keyword}/i")
+            for element in elements:
+                if element.is_visible():
+                    return True
+
+    return False
 
 def wait_for_page_load(page, timeout=60000):
     try:
@@ -177,39 +193,52 @@ def scrape_listing(page, url):
 
 def extract_links_stage(page):
     accept_cookies(page)
+    all_links = []
+    wait_time = 5000  # Wait time in milliseconds (5 seconds)
 
-    max_retries = 3
-    for attempt in range(max_retries):
+    # Extract the base URL and initial page number
+    base_url_match = re.match(r'(.*?)(?:pagenumber=(\d+))?$', SEARCH_URL)
+    base_url = base_url_match.group(1)
+    start_page = int(base_url_match.group(2) or 1)
+
+    current_page = start_page
+
+    while len(all_links) < LIMIT_INT:
+        # Construct the URL for the current page
+        page_url = f"{base_url}pagenumber={current_page}"
+
+        print(f"Navigating to page {current_page}: {page_url}")
+        page.goto(page_url)
+        page.wait_for_load_state('networkidle')
+        print(f"Waiting for {wait_time / 1000} seconds for the page to settle...")
+        page.wait_for_timeout(wait_time)  # Wait for 5 seconds after navigation
+
         if is_captcha_present(page):
-            print("CAPTCHA detected on search page. Please solve the CAPTCHA manually.")
+            print(f"CAPTCHA detected on search page {current_page}. Please solve the CAPTCHA manually.")
             input("Press Enter when you've solved the CAPTCHA...")
             page.reload()
             print("Page reloaded after CAPTCHA. Waiting for 5 seconds...")
-            page.wait_for_timeout(5000)  # Wait for 5 seconds after CAPTCHA
-            accept_cookies(page)  # Check for cookies again after CAPTCHA
+            page.wait_for_timeout(wait_time)
+            accept_cookies(page)
 
-        print(f"Attempt {attempt + 1}: Waiting for search results...")
+        print(f"Extracting links from page {current_page}...")
         try:
             page.wait_for_selector('article[data-item="result"]', timeout=60000)
             print("Search result articles found.")
         except PlaywrightTimeoutError:
-            print("Timeout while waiting for search results. Proceeding anyway.")
-
-        print(f"Current URL: {page.url}")
-        print(f"Page title: {page.title()}")
+            print(f"Timeout while waiting for search results on page {current_page}. Proceeding anyway.")
 
         links = extract_links(page)
-        if links:
-            return links
-        elif attempt < max_retries - 1:
-            print(f"No links found. Retrying... (Attempt {attempt + 1}/{max_retries})")
-            page.reload()
-            page.wait_for_timeout(5000)  # Wait for 5 seconds before retrying
-        else:
-            print("No links found after all attempts. Debugging page content:")
-            debug_page_content(page)
-    
-    return []
+        all_links.extend(links)
+        print(f"Found {len(links)} links on page {current_page}. Total links: {len(all_links)}")
+
+        if not links:
+            print("No more results found. Stopping pagination.")
+            break
+
+        current_page += 1
+
+    return all_links[:LIMIT_INT]
 
 def scrape_data_stage(context, links):
     all_data = []
