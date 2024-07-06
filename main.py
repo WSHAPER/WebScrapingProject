@@ -91,23 +91,33 @@ def wait_for_page_load(page, timeout=60000):
     except PlaywrightTimeoutError:
         return False
 
+
+def is_valid_address(address):
+    # Check if the address contains a street name or number
+    return ',' in address and any(char.isdigit() for char in address.split(',')[0])
+
+
 def extract_links(page):
     links = page.query_selector_all('article[data-item="result"]')
     extracted_links = set()  # Use a set to ensure uniqueness
     for article in links:
         link_element = article.query_selector('a[data-exp-id]')
-        if link_element:
+        address_element = article.query_selector('button.result-list-entry__map-link')
+
+        if link_element and address_element:
             href = link_element.get_attribute('href')
-            if href:
+            address = address_element.inner_text().strip()
+
+            if href and is_valid_address(address):
                 if href.startswith('/expose/'):
                     full_url = f"{BASE_URL}{href}"
                     extracted_links.add(full_url)
                 elif href.startswith('https://www.immobilienscout24.de/expose/'):
                     extracted_links.add(href)
-        
+
         if len(extracted_links) >= LIMIT_INT:
             break
-    
+
     return list(extracted_links)[:LIMIT_INT]
 
 def debug_page_content(page):
