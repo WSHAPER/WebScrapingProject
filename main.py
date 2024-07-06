@@ -228,7 +228,12 @@ def scrape_listing(page, url):
 
 def scrape_data_stage(context, links_with_info):
     all_data = []
+    seen_links = set()
     for link, has_parking, has_balcony in links_with_info:
+        if link in seen_links:
+            print(f"Duplicate link detected: {link}")
+            continue
+        seen_links.add(link)
         try:
             page = context.new_page()
             page.goto(link, timeout=30000)
@@ -259,7 +264,7 @@ def scrape_data_stage(context, links_with_info):
 
 
 def extract_links_for_config(page, base_url, start_page=1):
-    all_links = []
+    all_links = set()  # Change this to a set
     current_page = start_page
     wait_time = 5000  # Wait time in milliseconds (5 seconds)
 
@@ -291,9 +296,9 @@ def extract_links_for_config(page, base_url, start_page=1):
             page.wait_for_selector('article[data-item="result"]', timeout=60000)
             print("Search result articles found.")
 
-            links = extract_links(page, has_parking, has_balcony)  # Pass the parameters here
-            all_links.extend(links)
-            print(f"Found {len(links)} links on page {current_page}. Total links: {len(all_links)}")
+            links = extract_links(page, has_parking, has_balcony)
+            all_links.update(links)  # Use update instead of extend
+            print(f"Found {len(links)} links on page {current_page}. Total unique links: {len(all_links)}")
 
             if not links:
                 print("No more results found. Stopping pagination.")
@@ -308,7 +313,7 @@ def extract_links_for_config(page, base_url, start_page=1):
 
         current_page += 1
 
-    return all_links[:LIMIT_INT]
+    return list(all_links)[:LIMIT_INT]  # Convert back to list at the end
 
 def main():
     logging.debug("Starting main function")
