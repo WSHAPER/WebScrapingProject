@@ -13,11 +13,15 @@ FIELDS_TO_FETCH = {
     "deposit": ".is24qa-kaution-o-genossenschaftsanteile"
 }
 
-# URL for search results
-SEARCH_URL = "https://www.immobilienscout24.de/Suche/de/baden-wuerttemberg/stuttgart/wohnung-mieten?pagenumber=2"
+# Search configurations
+SEARCH_CONFIGS = [
+    "https://www.immobilienscout24.de/Suche/de/baden-wuerttemberg/stuttgart/wohnung-mieten?equipment=parking,balcony",
+    "https://www.immobilienscout24.de/Suche/de/baden-wuerttemberg/stuttgart/wohnung-mieten?equipment=balcony",
+    "https://www.immobilienscout24.de/Suche/de/baden-wuerttemberg/stuttgart/wohnung-mieten"
+]
 
 # Base URL for individual listings
 BASE_URL = "https://www.immobilienscout24.de"
 
 # Limit for the number of listings to scrape
-LIMIT_INT = 200
+LIMIT_INT = 150

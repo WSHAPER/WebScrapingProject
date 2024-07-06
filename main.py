@@ -4,7 +4,7 @@ import time
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import json
 import os
-from config import FIELDS_TO_FETCH, SEARCH_URL, BASE_URL, LIMIT_INT
+from config import FIELDS_TO_FETCH, BASE_URL, LIMIT_INT, SEARCH_CONFIGS
 import logging
 import re
 
@@ -223,67 +223,18 @@ def scrape_listing(page, url):
 
     return data
 
-def extract_links_stage(page):
-    accept_cookies(page)
-    all_links = []
-    wait_time = 5000  # Wait time in milliseconds (5 seconds)
-
-    # Extract the base URL and initial page number
-    base_url_match = re.match(r'(.*?)(?:pagenumber=(\d+))?$', SEARCH_URL)
-    base_url = base_url_match.group(1)
-    start_page = int(base_url_match.group(2) or 1)
-
-    current_page = start_page
-
-    while len(all_links) < LIMIT_INT:
-        # Construct the URL for the current page
-        page_url = f"{base_url}pagenumber={current_page}"
-
-        print(f"Navigating to page {current_page}: {page_url}")
-        page.goto(page_url)
-        page.wait_for_load_state('networkidle')
-        print(f"Waiting for {wait_time / 1000} seconds for the page to settle...")
-        page.wait_for_timeout(wait_time)  # Wait for 5 seconds after navigation
-
-        if is_captcha_present(page):
-            print(f"CAPTCHA detected on search page {current_page}. Please solve the CAPTCHA manually.")
-            input("Press Enter when you've solved the CAPTCHA...")
-            page.reload()
-            print("Page reloaded after CAPTCHA. Waiting for 5 seconds...")
-            page.wait_for_timeout(wait_time)
-            accept_cookies(page)
-
-        print(f"Extracting links from page {current_page}...")
-        try:
-            page.wait_for_selector('article[data-item="result"]', timeout=60000)
-            print("Search result articles found.")
-        except PlaywrightTimeoutError:
-            print(f"Timeout while waiting for search results on page {current_page}. Proceeding anyway.")
-
-        links = extract_links(page)
-        all_links.extend(links)
-        print(f"Found {len(links)} links on page {current_page}. Total links: {len(all_links)}")
-
-        if not links:
-            print("No more results found. Stopping pagination.")
-            break
-
-        current_page += 1
-
-    return all_links[:LIMIT_INT]
-
 def scrape_data_stage(context, links):
     all_data = []
     for link in links:
         try:
             page = context.new_page()
             page.goto(link, timeout=30000)
-            
+
             if is_captcha_present(page):
                 print(f"CAPTCHA detected on {link}. Please solve it manually.")
                 input("Press Enter when you've solved the CAPTCHA...")
                 page.reload()
-            
+
             data = scrape_listing(page, link)
             if data:
                 all_data.append(data)
@@ -301,6 +252,51 @@ def scrape_data_stage(context, links):
     return all_data
 
 
+def extract_links_for_config(page, base_url, start_page=1):
+    all_links = []
+    current_page = start_page
+    wait_time = 5000  # Wait time in milliseconds (5 seconds)
+
+    while len(all_links) < LIMIT_INT:
+        page_url = f"{base_url}&pagenumber={current_page}" if '?' in base_url else f"{base_url}?pagenumber={current_page}"
+
+        print(f"Navigating to page {current_page}: {page_url}")
+        try:
+            page.goto(page_url, wait_until="networkidle", timeout=60000)
+            print(f"Waiting for {wait_time / 1000} seconds for the page to settle...")
+            page.wait_for_timeout(wait_time)
+
+            if is_captcha_present(page):
+                print(f"CAPTCHA detected on search page {current_page}. Please solve the CAPTCHA manually.")
+                input("Press Enter when you've solved the CAPTCHA...")
+                page.reload(wait_until="networkidle", timeout=60000)
+                print("Page reloaded after CAPTCHA. Waiting for 5 seconds...")
+                page.wait_for_timeout(wait_time)
+                accept_cookies(page)
+
+            print(f"Extracting links from page {current_page}...")
+            page.wait_for_selector('article[data-item="result"]', timeout=60000)
+            print("Search result articles found.")
+
+            links = extract_links(page)
+            all_links.extend(links)
+            print(f"Found {len(links)} links on page {current_page}. Total links: {len(all_links)}")
+
+            if not links:
+                print("No more results found. Stopping pagination.")
+                break
+
+        except PlaywrightTimeoutError as e:
+            print(f"Timeout error on page {current_page}: {e}")
+            print("Attempting to proceed to the next page...")
+        except Exception as e:
+            print(f"An error occurred on page {current_page}: {e}")
+            print("Attempting to proceed to the next page...")
+
+        current_page += 1
+
+    return all_links[:LIMIT_INT]
+
 def main():
     logging.debug("Starting main function")
     playwright = None
@@ -310,18 +306,25 @@ def main():
 
     try:
         playwright, browser, context = connect_to_browser()
-
-        # Stage 1: Extract links
         search_page = context.new_page()
-        search_page.goto(SEARCH_URL)
-        if not wait_for_page_load(search_page):
-            print("Search results page load timeout. Proceeding anyway.")
 
-        links = extract_links_stage(search_page)
-        # Note: We're not closing the search_page here anymore
+        all_unique_links = set()
 
-        print(f"\nThe following {len(links)} unique links were found:")
-        for link in links:
+        for config in SEARCH_CONFIGS:
+            print(f"\nExtracting links for configuration: {config}")
+            try:
+                links = extract_links_for_config(search_page, config)
+                new_links = set(links) - all_unique_links
+                all_unique_links.update(new_links)
+                print(f"Found {len(new_links)} new unique links for this configuration.")
+                print(f"Total unique links so far: {len(all_unique_links)}")
+            except Exception as e:
+                print(f"An error occurred while processing configuration {config}: {e}")
+                print("Proceeding to the next configuration...")
+
+        links_list = list(all_unique_links)
+        print(f"\nTotal {len(links_list)} unique links found across all configurations:")
+        for link in links_list:
             print(link)
 
         # Ask user if they want to continue with scraping
@@ -342,6 +345,10 @@ def main():
         print("Script execution cancelled.")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
+        if search_page:
+            print(f"Current URL when error occurred: {search_page.url}")
+            search_page.screenshot(path='error_screenshot.png')
+            print("Screenshot saved as 'error_screenshot.png'")
     finally:
         print("Script execution finished.")
         if search_page:
