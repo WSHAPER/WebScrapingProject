@@ -156,7 +156,7 @@ def scrape_listing(page, url):
         print("Screenshot saved as 'error_screenshot.png'")
         return None
 
-    data = {"url": url}  # Include the URL in the data dictionary
+    data = {"url": url}
     for field, selector in FIELDS_TO_FETCH.items():
         try:
             element = page.query_selector(selector)
@@ -182,6 +182,15 @@ def scrape_listing(page, url):
                     data[field] = numeric_value if numeric_value else None
                     if field == "total_rent":
                         data["total_rent_estimated"] = "~" in text
+                elif field == "stories":
+                    stories_text = element.inner_text().strip()
+                    if "von" in stories_text:
+                        story, total_stories = stories_text.split("von")
+                        data["story"] = story.strip()
+                        data["total_stories"] = total_stories.strip()
+                    else:
+                        data["story"] = stories_text
+                        data["total_stories"] = None
                 else:
                     data[field] = element.inner_text().strip()
             else:
@@ -199,8 +208,16 @@ def scrape_listing(page, url):
                 print(f"Error converting {field}: {data[field]}")
                 data[field] = None
 
+    # Convert story and total_stories to integers if possible
+    for field in ["story", "total_stories"]:
+        if data.get(field) and data[field] != "Error":
+            try:
+                data[field] = int(data[field])
+            except ValueError:
+                print(f"Could not convert {field} to integer: {data[field]}")
+
     # Check if the listing should be skipped based on the "stories" field
-    if data.get("stories") is None or "von" not in data.get("stories", ""):
+    if data.get("story") is None or data.get("total_stories") is None:
         print(f"Skipping listing {url} due to invalid 'stories' field: {data.get('stories')}")
         return None
 
