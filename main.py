@@ -164,7 +164,19 @@ def scrape_listing(page, url):
         try:
             element = page.query_selector(selector)
             if element:
-                if field == "address":
+                if field == "size":
+                    size_text = element.inner_text().strip()
+                    # Extract numeric value and unit using regex
+                    size_match = re.search(r'(\d+(?:,\d+)?)\s*(\S+)?', size_text)
+                    if size_match:
+                        # Replace comma with dot and convert to float
+                        data[field] = float(size_match.group(1).replace(',', '.'))
+                        # Store the unit in a separate field
+                        data['size_unit'] = size_match.group(2) if size_match.group(2) else "N/A"
+                    else:
+                        data[field] = None
+                        data['size_unit'] = "N/A"
+                elif field == "address":
                     address = element.inner_text().replace("\n", ", ").strip()
                     # Remove any duplicate commas and extra spaces
                     address = ", ".join(part.strip() for part in address.split(",") if part.strip())
