@@ -229,7 +229,7 @@ def scrape_listing(page, url):
 def scrape_data_stage(context, links_with_info):
     all_data = []
     seen_links = set()
-    for link, has_parking, has_balcony in links_with_info:
+    for link, info in links_with_info:
         if link in seen_links:
             print(f"Duplicate link detected: {link}")
             continue
@@ -246,8 +246,8 @@ def scrape_data_stage(context, links_with_info):
             data = scrape_listing(page, link)
             if data:
                 # Add parking and balcony info to the scraped data
-                data['parking'] = has_parking
-                data['balcony'] = has_balcony
+                data['parking'] = info['parking']
+                data['balcony'] = info['balcony']
                 all_data.append(data)
                 print(f"Scraped data for {link}:")
                 print(json.dumps(data, indent=2, ensure_ascii=False))
@@ -264,7 +264,7 @@ def scrape_data_stage(context, links_with_info):
 
 
 def extract_links_for_config(page, base_url, start_page=1):
-    all_links = set()  # Change this to a set
+    all_links = {}  # Dictionary to store link info
     current_page = start_page
     wait_time = 5000  # Wait time in milliseconds (5 seconds)
 
@@ -297,7 +297,12 @@ def extract_links_for_config(page, base_url, start_page=1):
             print("Search result articles found.")
 
             links = extract_links(page, has_parking, has_balcony)
-            all_links.update(links)  # Use update instead of extend
+            for link, parking, balcony in links:
+                if link not in all_links:
+                    all_links[link] = {"parking": parking, "balcony": balcony}
+                else:
+                    all_links[link]["parking"] |= parking
+                    all_links[link]["balcony"] |= balcony
             print(f"Found {len(links)} links on page {current_page}. Total unique links: {len(all_links)}")
 
             if not links:
@@ -313,7 +318,7 @@ def extract_links_for_config(page, base_url, start_page=1):
 
         current_page += 1
 
-    return list(all_links)[:LIMIT_INT]  # Convert back to list at the end
+    return list(all_links.items())[:LIMIT_INT]  # Convert back to list of tuples at the end
 
 def main():
     logging.debug("Starting main function")
@@ -326,24 +331,28 @@ def main():
         playwright, browser, context = connect_to_browser()
         search_page = context.new_page()
 
-        all_unique_links = set()
+        all_unique_links = {}
 
         for config in SEARCH_CONFIGS:
             print(f"\nExtracting links for configuration: {config}")
             try:
                 links_with_info = extract_links_for_config(search_page, config)
-                new_links = set(links_with_info) - all_unique_links
-                all_unique_links.update(new_links)
-                print(f"Found {len(new_links)} new unique links for this configuration.")
+                for link, info in links_with_info:
+                    if link not in all_unique_links:
+                        all_unique_links[link] = info
+                    else:
+                        all_unique_links[link]["parking"] |= info["parking"]
+                        all_unique_links[link]["balcony"] |= info["balcony"]
+                print(f"Found {len(links_with_info)} links for this configuration.")
                 print(f"Total unique links so far: {len(all_unique_links)}")
             except Exception as e:
                 print(f"An error occurred while processing configuration {config}: {e}")
                 print("Proceeding to the next configuration...")
 
-        links_list = list(all_unique_links)
+        links_list = list(all_unique_links.items())
         print(f"\nTotal {len(links_list)} unique links found across all configurations:")
-        for link, has_parking, has_balcony in links_list:
-            print(f"{link} (Parking: {has_parking}, Balcony: {has_balcony})")
+        for link, info in links_list:
+            print(f"{link} (Parking: {info['parking']}, Balcony: {info['balcony']})")
 
         # Ask user if they want to continue with scraping
         user_input = input("\nContinue with web scraping? (y/n): ").lower().strip()
